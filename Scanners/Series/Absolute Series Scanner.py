@@ -42,8 +42,8 @@ PLEX_LIBRARY_URL       = "http://localhost:32400/library/sections/"  # Allow to 
 SSL_CONTEXT            = ssl.SSLContext(SSL_PROTOCOL)
 HEADERS                = {'Content-type': 'application/json'}
 
-SOURCE_IDS             = cic(r'\[((?P<source>(anidb(|[2-4])|tvdb(|[2-5])|tmdb|tsdb|imdb|youtube(|[2-3])))-(?P<id>[^\[\]]*)|(?P<yt>(PL[^\[\]]{16}|PL[^\[\]]{32}|(UU|FL|LP|RD|UC|HC)[^\[\]]{22})))\]')
-SOURCE_ID_FILES        = ["anidb.id", "anidb2.id", "anidb3.id", "anidb4.id", "tvdb.id", "tvdb2.id", "tvdb3.id", "tvdb4.id", "tvdb5.id", "tmdb.id", "tsdb.id", "imdb.id", "youtube.id", "youtube2.id", "youtube3.id"]
+SOURCE_IDS             = cic(r'\[((?P<source>(anidb(|[2-5])|tvdb(|[2-5])|tmdb|tsdb|imdb|youtube(|[2-3])))-(?P<id>[^\[\]]*)|(?P<yt>(PL[^\[\]]{16}|PL[^\[\]]{32}|(UU|FL|LP|RD|UC|HC)[^\[\]]{22})))\]')
+SOURCE_ID_FILES        = ["anidb.id", "anidb2.id", "anidb3.id", "anidb4.id", "anidb5.id", "tvdb.id", "tvdb2.id", "tvdb3.id", "tvdb4.id", "tvdb5.id", "tmdb.id", "tsdb.id", "imdb.id", "youtube.id", "youtube2.id", "youtube3.id"]
 SOURCE_ID_OFFSET       = cic(r"(?P<id>\d{1,7})-(?P<season>s\d{1,3})?(?P<episode>e-?\d{1,3})?")
 ASS_MAPPING_URL        = 'https://rawgit.com/ZeroQI/Absolute-Series-Scanner/master/tvdb4.mapping.xml'
 
@@ -372,7 +372,7 @@ def clean_string(string, no_parenthesis=False, no_whack=False, no_dash=False, no
   return string.strip()
 
 ### Add files into Plex database ########################################################################
-def add_episode_into_plex(media, file, root, path, show, season=1, ep=1, title="", year=None, ep2="", rx="", tvdb_mapping={}, unknown_series_length=False, offset_season=0, offset_episode=0, mappingList={}):
+def add_episode_into_plex(media, file, root, path, show, season=1, ep=1, title="", year=None, ep2="", rx="", tvdb_mapping={}, unknown_series_length=False, offset_season=0, offset_episode=0, mappingList={}, reverse_mapping=False):
   global COUNTER 
   
   match = SOURCE_IDS.search(show)
@@ -408,8 +408,12 @@ def add_episode_into_plex(media, file, root, path, show, season=1, ep=1, title="
       if '-' in ep or  '+' in ep:  ep, ep2 = re.split("[-+]", ep, 1); ep, ep2 = int(ep), int(ep2) if ep2 and ep2.isdigit() else None
       else:                        ep, ep2 = int(ep), int(ep)+multi_ep if multi_ep else None
     elif season > 0:
-      if Dict(mappingList, 'episodeoffset'):  ep, ep2 = ep+int(Dict(mappingList, 'episodeoffset')), ep2+int(Dict(mappingList, 'episodeoffset')) if ep2 else None 
-      if Dict(mappingList, 'defaulttvdbseason') and not Dict(mappingList, 'defaulttvdbseason_a', default=False):  season = int(Dict(mappingList, 'defaulttvdbseason'))
+      if not reverse_mapping:
+        if Dict(mappingList, 'episodeoffset'):  ep, ep2 = ep+int(Dict(mappingList, 'episodeoffset')), ep2+int(Dict(mappingList, 'episodeoffset')) if ep2 else None 
+        if Dict(mappingList, 'defaulttvdbseason') and not Dict(mappingList, 'defaulttvdbseason_a', default=False):  season = int(Dict(mappingList, 'defaulttvdbseason'))
+      else:
+        if Dict(mappingList, 'episodeoffset'):  ep, ep2 = ep-int(Dict(mappingList, 'episodeoffset')), ep2-int(Dict(mappingList, 'episodeoffset')) if ep2 else None 
+        season = 1
     if ep<=0 and season == 0:                          COUNTER = COUNTER+1; season, ep, ep2 = 0, COUNTER, COUNTER  # s00e00    => s00e5XX (happens when ScudLee mapps to S0E0)
     if ep<=0 and season > 0:                                                season, ep, ep2 = 0, 1, 1              # s[1-0]e00 => s00e01
     if not ep2 or ep > ep2:                                                 ep2             = ep                   #  make ep2 same as ep for loop and tests
@@ -743,7 +747,7 @@ def Scan(path, files, media, dirs, language=None, root=None, **kwargs): #get cal
         Log.info(u"".ljust(157, '-'))
     
     ### forced guid modes - anidb2/3/4 (requires ScudLee's mapping xml file) ###
-    if source in ["anidb2", "anidb3", "anidb4"]:
+    if source in ["anidb2", "anidb3", "anidb4", "anidb5"]:
       a2_tvdbid = ""
       Log.info(u"AniDB mode (%s) enabled, loading mapping xml file (Local->ASS mod->ScudLee master)" % source)
       
@@ -770,7 +774,7 @@ def Scan(path, files, media, dirs, language=None, root=None, **kwargs): #get cal
         except Exception as e:  Log.error("Error parsing ScudLee's file content, Exception: '%s'" % e)
       
       # Set folder_show from successful mapping
-      if a2_tvdbid: folder_show = clean_string(folder_show) + " [tvdb-%s]" % a2_tvdbid
+      if a2_tvdbid and source != "anidb5": folder_show = clean_string(folder_show) + " [tvdb-%s]" % a2_tvdbid
       else: folder_show = clean_string(folder_show) + " [anidb-%s]" % (id)
       Log.info(u"".ljust(157, '-'))
     
@@ -1048,7 +1052,7 @@ def Scan(path, files, media, dirs, language=None, root=None, **kwargs): #get cal
           if match:  ep, title, year, loop_completed = "01", match.group('show'), match.group('year'), False
        
       if not loop_completed and ep.isdigit():
-        standard_holding.append([file, root, path, show, season, int(ep), title, year, int(ep2) if ep2 and ep2.isdigit() else None, rx, tvdb_mapping, unknown_series_length, offset_season, offset_episode, mappingList])
+        standard_holding.append([file, root, path, show, season, int(ep), title, year, int(ep2) if ep2 and ep2.isdigit() else None, rx, tvdb_mapping, unknown_series_length, offset_season, offset_episode, mappingList, source == "anidb5"])
         continue
       
       ### Check for Regex: SERIES_RX + ANIDB_RX ###
@@ -1100,7 +1104,7 @@ def Scan(path, files, media, dirs, language=None, root=None, **kwargs): #get cal
             cumulative_offset = sum( [ AniDB_op[ANIDB_RX.index(rx)][x] for x in Dict(AniDB_op, ANIDB_RX.index(rx), default={0:0}) if x<ep and ANIDB_RX.index(rx) in AniDB_op and x in AniDB_op[ANIDB_RX.index(rx)] ] )
             ep = ANIDB_OFFSET[ANIDB_RX.index(rx)] + int(ep) + offset + cumulative_offset    # Sum of all prior offsets
             #Log.info(u'ep type offset: {}, ep: {}, offset: {}, cumulative_offset: {}, final ep number: {}'.format(ANIDB_OFFSET[ANIDB_RX.index(rx)], ep, offset, cumulative_offset, ep))
-          standard_holding.append([file, root, path, show, int(season), int(ep), title, year, int(ep2) if ep2 and ep2.isdigit() else int(ep), rx, tvdb_mapping, unknown_series_length, offset_season, offset_episode, mappingList])
+          standard_holding.append([file, root, path, show, int(season), int(ep), title, year, int(ep2) if ep2 and ep2.isdigit() else int(ep), rx, tvdb_mapping, unknown_series_length, offset_season, offset_episode, mappingList, source == "anidb5"])
           break
       if match: continue  # next file iteration
       
